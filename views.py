@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from models import Customer, Product, Sale, SaleItem
+from sqlalchemy import func
 import logging
 
 logging.basicConfig(
@@ -47,6 +48,7 @@ def create_product(db: Session, data):
 
 def create_sale(db: Session, data):
     logger.info("Starting sale for customer_id: %s", data.customer_id)
+
     customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
     if not customer:
         logger.warning("Customer not found: %s", data.customer_id)
@@ -63,6 +65,7 @@ def create_sale(db: Session, data):
 
         for item in data.items:
             product = db.query(Product).filter(Product.id == item.product_id).first()
+
             if not product:
                 raise ValueError(f"Product ID {item.product_id} not found")
 
@@ -104,3 +107,57 @@ def create_sale(db: Session, data):
         db.rollback()
         logger.error("Sale failed: %s", str(e))
         raise Exception(f"Sale creation failed: {str(e)}")
+
+
+
+
+
+def get_daily_metrics(db: Session, from_date=None, to_date=None):
+    logger.info("Fetching daily sales & revenue metrics")
+
+    query = (
+        db.query(
+            func.date(Sale.sale_date).label("sale_date"),
+            func.count(Sale.id).label("total_sales"),
+            func.sum(Sale.total_amount).label("total_revenue"),
+            (func.sum(Sale.total_amount) / func.count(Sale.id)).label("avg_order_value")
+        )
+    )
+
+    # Optional date filters
+    if from_date:
+        query = query.filter(Sale.sale_date >= from_date)
+    if to_date:
+        query = query.filter(Sale.sale_date <= to_date)
+
+    daily_data = (
+        query
+        .group_by(func.date(Sale.sale_date))
+        .order_by(func.date(Sale.sale_date))
+        .all()
+    )
+
+    # Prepare daily response
+    daily_metrics = []
+    overall_sales = 0
+    overall_revenue = 0
+
+    for row in daily_data:
+        daily_metrics.append({
+            "date": str(row.sale_date),
+            "total_sales": row.total_sales,
+            "total_revenue": float(row.total_revenue),
+            "avg_order_value": round(float(row.avg_order_value), 2)
+        })
+
+        overall_sales += row.total_sales
+        overall_revenue += float(row.total_revenue)
+
+    return {
+        "summary": {
+            "overall_sales": overall_sales,
+            "overall_revenue": round(overall_revenue, 2)
+        },
+        "daily_metrics": daily_metrics
+    }
+
