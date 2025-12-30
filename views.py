@@ -80,7 +80,6 @@ def create_sale(db: Session, data):
                 product.product_name, item.quantity, product.price
             )
 
-            # 🔹 Reduce stock
             product.stock_quantity -= item.quantity
 
             sale_item = SaleItem(
